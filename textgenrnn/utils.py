@@ -12,6 +12,8 @@ import h5py
 import csv
 import re
 
+import textgenrnn
+
 
 def textgenrnn_sample(preds, temperature, interactive=False, top_n=3):
     '''
@@ -65,7 +67,7 @@ def textgenrnn_generate(model, vocab,
     # If generating word level, must add spaces around each punctuation.
     # https://stackoverflow.com/a/3645946/9314418
     if word_level and prefix:
-        punct = '!"#$%&()*+,-./:;<=>?@[\]^_`{|}~\\n\\t\'‘’“”’–—'
+        punct = textgenrnn.PUNCT
         prefix = re.sub('([{}])'.format(punct), r' \1 ', prefix)
         prefix_t = [x.lower() for x in prefix.split()]
 
@@ -272,14 +274,15 @@ def synthesize_to_file(textgens, destination_path, **kwargs):
 
 
 class generate_after_epoch(Callback):
-    def __init__(self, textgenrnn, gen_epochs, max_gen_length):
+    def __init__(self, textgenrnn, gen_epochs, max_gen_length, top_n):
         self.textgenrnn = textgenrnn
         self.gen_epochs = gen_epochs
         self.max_gen_length = max_gen_length
+        self.top_n = top_n
 
     def on_epoch_end(self, epoch, logs={}):
         if self.gen_epochs > 0 and (epoch+1) % self.gen_epochs == 0:
-            self.textgenrnn.generate_samples(
+            self.textgenrnn.generate_samples(top_n=self.top_n,
                 max_gen_length=self.max_gen_length)
 
 

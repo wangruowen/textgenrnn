@@ -14,7 +14,7 @@ def generate_sequences_from_texts(texts, indices_list,
     is_words = textgenrnn.config['word_level']
     is_single = textgenrnn.config['single_text']
     max_length = textgenrnn.config['max_length']
-    meta_token = textgenrnn.META_TOKEN
+    meta_token = textgenrnn.META_TOKEN  # Kind of EOS token
 
     if is_words:
         new_tokenizer = Tokenizer(filters='', char_level=True)

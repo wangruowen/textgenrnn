@@ -22,6 +22,7 @@ import re
 
 class textgenrnn:
     META_TOKEN = '<s>'
+    PUNCT = '!"$%&()*+,-./:;<=>?\\[\\]\\\\^_`{|}~\\n\\t\'‘’“”’'  # @ and # are left out for tweets-style text token
     config = {
         'rnn_layers': 2,
         'rnn_size': 128,
@@ -30,16 +31,19 @@ class textgenrnn:
         'max_words': 10000,
         'dim_embeddings': 100,
         'word_level': False,
-        'single_text': False
+        'single_text': False,
+        'use_attention': False,
+        'top_n': 3,
     }
     default_config = config.copy()
 
     def __init__(self, weights_path=None,
                  vocab_path=None,
-                 config_path=None,
+                 new_model=False,
+                 config=None,
                  name="textgenrnn"):
 
-        if weights_path is None:
+        if not new_model and weights_path is None:
             weights_path = resource_filename(__name__,
                                              'textgenrnn_weights.hdf5')
 
@@ -47,10 +51,8 @@ class textgenrnn:
             vocab_path = resource_filename(__name__,
                                            'textgenrnn_vocab.json')
 
-        if config_path is not None:
-            with open(config_path, 'r',
-                      encoding='utf8', errors='ignore') as json_file:
-                self.config = json.load(json_file)
+        if config is not None:
+            self.config.update(config)
 
         self.config.update({'name': name})
         self.default_config.update({'name': name})
@@ -115,7 +117,7 @@ class textgenrnn:
                        **kwargs):
 
         if new_model and not via_new_model:
-            self.train_new_model(texts,
+            return self.train_new_model(texts,
                                  context_labels=context_labels,
                                  num_epochs=num_epochs,
                                  gen_epochs=gen_epochs,
@@ -126,7 +128,6 @@ class textgenrnn:
                                  save_epochs=save_epochs,
                                  multi_gpu=multi_gpu,
                                  **kwargs)
-            return
 
         if context_labels:
             context_labels = LabelBinarizer().fit_transform(context_labels)
@@ -207,14 +208,15 @@ class textgenrnn:
             model_t = parallel_model
             print("Training on {} GPUs.".format(num_gpus))
 
-        model_t.fit_generator(gen, steps_per_epoch=steps_per_epoch,
+        history = model_t.fit_generator(gen, steps_per_epoch=steps_per_epoch,
                               epochs=num_epochs,
                               callbacks=[
                                   LearningRateScheduler(
                                       lr_linear_decay),
                                   generate_after_epoch(
                                       self, gen_epochs,
-                                      max_gen_length),
+                                      max_gen_length,
+                                      self.config['top_n']),
                                   save_model_weights(
                                       self, num_epochs,
                                       save_epochs)],
@@ -228,6 +230,8 @@ class textgenrnn:
         if context_labels is not None:
             self.model = Model(inputs=self.model.input[0],
                                outputs=self.model.output[1])
+
+        return history
 
     def train_new_model(self, texts, context_labels=None, num_epochs=50,
                         gen_epochs=1, batch_size=128, dropout=0.0,
@@ -246,9 +250,8 @@ class textgenrnn:
         # https://stackoverflow.com/a/3645946/9314418
 
         if self.config['word_level']:
-            punct = '!"#$%&()*+,-./:;<=>?@[\]^_`{|}~\\n\\t\'‘’“”’–—'
             for i in range(len(texts)):
-                texts[i] = re.sub('([{}])'.format(punct), r' \1 ', texts[i])
+                texts[i] = re.sub('(--|[{}])'.format(textgenrnn.PUNCT), r' \1 ', texts[i])
                 texts[i] = re.sub(' {2,}', ' ', texts[i])
 
         # Create text vocabulary for new texts
@@ -258,7 +261,7 @@ class textgenrnn:
                                    char_level=(not self.config['word_level']))
         self.tokenizer.fit_on_texts(texts)
 
-        # Limit vocab to max_words
+        # Limit vocab to max_words TODO this should be based on most common words
         max_words = self.config['max_words']
         self.tokenizer.word_index = {k: v for (
             k, v) in self.tokenizer.word_index.items() if v <= max_words}
@@ -284,7 +287,7 @@ class textgenrnn:
                   'w', encoding='utf8') as outfile:
             json.dump(self.config, outfile, ensure_ascii=False)
 
-        self.train_on_texts(texts, new_model=True,
+        return self.train_on_texts(texts, new_model=True,
                             via_new_model=True,
                             context_labels=context_labels,
                             num_epochs=num_epochs,
@@ -323,20 +326,20 @@ class textgenrnn:
 
         print("{:,} texts collected.".format(len(texts)))
         if new_model:
-            self.train_new_model(
+            return self.train_new_model(
                 texts, context_labels=context_labels, **kwargs)
         else:
-            self.train_on_texts(texts, context_labels=context_labels, **kwargs)
+            return self.train_on_texts(texts, context_labels=context_labels, **kwargs)
 
     def train_from_largetext_file(self, file_path, new_model=True, **kwargs):
         with open(file_path, 'r', encoding='utf8', errors='ignore') as f:
             texts = [f.read()]
 
         if new_model:
-            self.train_new_model(
+            return self.train_new_model(
                 texts, single_text=True, **kwargs)
         else:
-            self.train_on_texts(texts, single_text=True, **kwargs)
+            return self.train_on_texts(texts, single_text=True, **kwargs)
 
     def generate_to_file(self, destination_path, **kwargs):
         texts = self.generate(return_as_list=True, **kwargs)
