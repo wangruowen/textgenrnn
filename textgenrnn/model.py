@@ -65,6 +65,7 @@ def textgenrnn_model(num_classes, cfg, context_size=None,
         model.compile(loss='categorical_crossentropy', optimizer=optimizer,
                       loss_weights=[0.8, 0.2], metrics=metrics)
 
+    model.summary()
     return model
 
 
